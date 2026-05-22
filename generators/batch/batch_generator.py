@@ -9,13 +9,13 @@ from models.ride_event_model import RideEvent
 from models.ride_model import Ride
 from models.vehicle_model import Vehicle
 
-from generators.customer_generator import CustomerGenerator
-from generators.driver_generator import DriverGenerator
-from generators.fare_generator import FareGenerator
-from generators.rating_generator import RatingGenerator
-from generators.ride_event_generator import RideEventGenerator
-from generators.ride_generator import RideGenerator
-from generators.vehicle_generator import VehicleGenerator
+from generators.entity_generators.customer_generator import CustomerGenerator
+from generators.entity_generators.driver_generator import DriverGenerator
+from generators.entity_generators.fare_generator import FareGenerator
+from generators.entity_generators.rating_generator import RatingGenerator
+from generators.entity_generators.ride_event_generator import RideEventGenerator
+from generators.entity_generators.ride_generator import RideGenerator
+from generators.entity_generators.vehicle_generator import VehicleGenerator
 
 
 @dataclass
