@@ -156,20 +156,37 @@ class RealTimeGenerator:
 if __name__ == "__main__":
     import time
 
-    gen = RealTimeGenerator(n_concurrent=3, n_drivers=10, n_customers=20)
-    print("Streaming 2 completed rides (fast-forward, no sleep):\n")
+    # 2-second intervals so you can watch events arrive without waiting 15s each
+    gen = RealTimeGenerator(
+        n_concurrent=3,
+        n_drivers=10,
+        n_customers=20,
+        location_update_interval_seconds=2,
+    )
+    print("Streaming real-time (Ctrl+C to stop):\n")
 
     event_count = fare_count = rating_count = 0
 
-    for payload in gen.stream(max_rides=2):
-        if isinstance(payload, RideEvent):
-            print(f"  RideEvent  [{payload.event_type:20s}]  ride={str(payload.ride_id)[:8]}  at={payload.occurred_at.isoformat()}")
-            event_count += 1
-        elif isinstance(payload, Fare):
-            print(f"  Fare       [total=${payload.total:6.2f}]           ride={str(payload.ride_id)[:8]}")
-            fare_count += 1
-        elif isinstance(payload, Rating):
-            print(f"  Rating     [{payload.rated_entity_type:10s} score={payload.score}]  ride={str(payload.ride_id)[:8]}")
-            rating_count += 1
+    for payload in gen.stream():
+        now = datetime.now(timezone.utc)
 
-    print(f"\nTotal: {event_count} events, {fare_count} fares, {rating_count} ratings")
+        if isinstance(payload, RideEvent):
+            wait = (payload.occurred_at - now).total_seconds()
+            if wait > 0:
+                time.sleep(wait)
+            print(f"  [{datetime.now(timezone.utc).isoformat(timespec='seconds')}]  "
+                  f"RideEvent  {payload.event_type:<20s}  ride={str(payload.ride_id)[:8]}"
+                  f"  lat={payload.latitude:.4f}  lon={payload.longitude:.4f}")
+            event_count += 1
+
+        elif isinstance(payload, Fare):
+            print(f"  [{datetime.now(timezone.utc).isoformat(timespec='seconds')}]  "
+                  f"Fare       total=${payload.total:6.2f}  surge={payload.surge_multiplier}x"
+                  f"  ride={str(payload.ride_id)[:8]}")
+            fare_count += 1
+
+        elif isinstance(payload, Rating):
+            print(f"  [{datetime.now(timezone.utc).isoformat(timespec='seconds')}]  "
+                  f"Rating     {payload.rated_entity_type:<10s}  score={payload.score}"
+                  f"  ride={str(payload.ride_id)[:8]}")
+            rating_count += 1

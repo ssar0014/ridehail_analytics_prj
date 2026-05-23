@@ -32,22 +32,37 @@ An end-to-end data engineering and analytics project simulating a ridehail servi
 
 ```
 ridehail_analytics/
-├── enums/                  # StrEnum/IntEnum definitions
-│   ├── customer_status.py  # CustomerStatus, CustomerTier
-│   ├── driver_status.py    # DriverStatus
-│   ├── rated_entity_type.py# RatedEntityType
-│   ├── ride_event_type.py  # RideEventType
-│   ├── ride_status.py      # RideStatus
-│   ├── vehicle_status.py   # VehicleStatus
-│   └── vehicle_type.py     # VehicleType
-├── models/                 # OLTP data models (Python dataclasses)
-│   ├── driver_model.py     # Driver
-│   ├── customer_model.py   # Customer
-│   ├── vehicle_model.py    # Vehicle
-│   ├── ride_model.py       # Ride
-│   ├── fare_model.py       # Fare
-│   ├── rating_model.py     # Rating
-│   └── ride_event_model.py # RideEvent
+├── enums/                          # StrEnum/IntEnum definitions
+│   ├── customer_status.py          # CustomerStatus, CustomerTier
+│   ├── driver_status.py            # DriverStatus
+│   ├── rated_entity_type.py        # RatedEntityType
+│   ├── ride_event_type.py          # RideEventType
+│   ├── ride_status.py              # RideStatus
+│   ├── vehicle_status.py           # VehicleStatus
+│   └── vehicle_type.py             # VehicleType
+├── models/                         # OLTP data models (Python dataclasses)
+│   ├── driver_model.py             # Driver
+│   ├── customer_model.py           # Customer
+│   ├── vehicle_model.py            # Vehicle
+│   ├── ride_model.py               # Ride
+│   ├── fare_model.py               # Fare
+│   ├── rating_model.py             # Rating
+│   └── ride_event_model.py         # RideEvent
+├── generators/
+│   ├── entity_generators/          # Per-entity generators (Faker-based)
+│   │   ├── driver_generator.py
+│   │   ├── customer_generator.py
+│   │   ├── vehicle_generator.py
+│   │   ├── ride_generator.py
+│   │   ├── fare_generator.py
+│   │   ├── rating_generator.py
+│   │   └── ride_event_generator.py
+│   ├── batch/
+│   │   └── batch_generator.py      # Orchestrates all entity generators; produces BatchDataset
+│   └── real_time/
+│       └── real_time_generator.py  # Heap-based concurrent ride simulator; yields StreamPayload
+├── ui/
+│   └── ride_visualizer.py          # Streamlit + PyDeck live map (dev preview)
 └── main.py
 ```
 
@@ -100,20 +115,38 @@ The OLTP models above feed a star schema in the warehouse:
 
 ---
 
+## Live Map (dev preview)
+
+`ui/ride_visualizer.py` is a Streamlit + PyDeck app that visualises the real-time generator on a dark map of San Francisco. It shows active vehicle positions (green dots) and their route trails (blue paths), refreshing every 2 seconds.
+
+```bash
+uv run streamlit run ui/ride_visualizer.py
+```
+
+> **Note:** this is a development preview only. It will be replaced by a full admin console (with driver/customer telemetry panels and live parameter controls) once the Kafka + Flink pipeline is in place.
+
+---
+
 ## Commands
 
 ```bash
 # Install dependencies and sync virtualenv
 uv sync
 
-# Run the project
+# Run the project entry point
 uv run python main.py
+
+# Run the batch generator smoke test
+uv run python generators/batch/batch_generator.py
+
+# Run the real-time generator smoke test (Ctrl+C to stop)
+uv run python generators/real_time/real_time_generator.py
+
+# Launch the live map visualiser
+uv run streamlit run ui/ride_visualizer.py
 
 # Add a dependency
 uv add <package>
-
-# Run a script or tool
-uv run <command>
 ```
 
 ---
@@ -121,12 +154,14 @@ uv run <command>
 ## Roadmap
 
 - [x] OLTP data models
-- [ ] Batch data generator
-- [ ] Real-time data generator
+- [x] Batch data generator
+- [x] Real-time data generator
+- [x] Live map visualiser (dev preview)
 - [ ] Postgres schema + migrations
+- [ ] Docker Compose setup
 - [ ] Kafka producer
+- [ ] Flink jobs
 - [ ] Airflow DAGs
 - [ ] dbt models
-- [ ] Flink jobs
-- [ ] Docker Compose setup
+- [ ] Admin console (driver/customer panels, live parameter controls)
 - [ ] Hosting
