@@ -7,6 +7,17 @@ from models.driver_model import Driver
 
 fake = Faker()
 
+_EMAIL_DOMAINS = [
+    "gmail.com", "yahoo.com", "hotmail.com",
+    "outlook.com", "protonmail.com", "icloud.com",
+]
+
+
+def _random_email(first: str, last: str) -> str:
+    suffix = uuid4().hex[:8]
+    domain = random.choice(_EMAIL_DOMAINS)
+    return f"{first.lower()}.{last.lower()}.{suffix}@{domain}"
+
 # Weighted statuses — most drivers online and available, few suspended
 _STATUS_WEIGHTS = {
     DriverStatus.AVAILABLE: 0.50,
@@ -34,12 +45,14 @@ class DriverGenerator:
             weights=list(_STATUS_WEIGHTS.values()),
         )[0]
 
+        first_name = fake.first_name()
+        last_name  = fake.last_name()
         return Driver(
             driver_id=uuid4(),
-            first_name=fake.first_name(),
-            last_name=fake.last_name(),
+            first_name=first_name,
+            last_name=last_name,
             phone_number=fake.phone_number(),
-            email=fake.unique.email(),
+            email=_random_email(first_name, last_name),
             license_number=fake.bothify(text="DL-#######"),
             status=status,
             current_latitude=round(random.uniform(self.lat_min, self.lat_max), 6),

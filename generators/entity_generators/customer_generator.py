@@ -7,6 +7,17 @@ from models.customer_model import Customer
 
 fake = Faker()
 
+_EMAIL_DOMAINS = [
+    "gmail.com", "yahoo.com", "hotmail.com",
+    "outlook.com", "protonmail.com", "icloud.com",
+]
+
+
+def _random_email(first: str, last: str) -> str:
+    suffix = uuid4().hex[:8]
+    domain = random.choice(_EMAIL_DOMAINS)
+    return f"{first.lower()}.{last.lower()}.{suffix}@{domain}"
+
 # Weighted tiers — most customers are regular, fewer reach platinum
 _TIER_WEIGHTS = {
     CustomerTier.REGULAR:  0.60,
@@ -34,12 +45,14 @@ class CustomerGenerator:
             weights=list(_STATUS_WEIGHTS.values()),
         )[0]
 
+        first_name = fake.first_name()
+        last_name  = fake.last_name()
         return Customer(
             customer_id=uuid4(),
-            first_name=fake.first_name(),
-            last_name=fake.last_name(),
+            first_name=first_name,
+            last_name=last_name,
             phone_number=fake.phone_number(),
-            email=fake.unique.email(),
+            email=_random_email(first_name, last_name),
             payment_token=f"tok_{fake.bothify(text='????####????####')}",
             status=status,
             tier=tier,

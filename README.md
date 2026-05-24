@@ -9,8 +9,8 @@ An end-to-end data engineering and analytics project simulating a ridehail servi
 1. **Simulate** a ridehail service with realistic entities — drivers, customers, vehicles, rides, fares, ratings, and real-time ride events
 2. **Generate** data in two modes — batch (historical records) and real-time (streaming ride events)
 3. **Pipeline** the data through two paths:
-   - **Batch**: Postgres → Airflow → dbt → historical analytics
-   - **Real-time**: Kafka → Flink → real-time analytics
+   - **Batch**: Postgres → Airflow → dbt → ClickHouse → historical analytics
+   - **Real-time**: Kafka → Flink → ClickHouse → real-time analytics
 4. **Host** the full stack on Docker
 
 ---
@@ -21,10 +21,39 @@ An end-to-end data engineering and analytics project simulating a ridehail servi
 |---|---|
 | Language | Python 3.14 |
 | Package manager | [uv](https://docs.astral.sh/uv/) |
-| Batch warehouse | Postgres / Snowflake |
+| OLTP / source of truth | Postgres |
+| Analytical warehouse (OLAP) | ClickHouse |
 | Batch orchestration | Airflow + dbt |
 | Real-time streaming | Kafka + Flink |
 | Infrastructure | Docker |
+
+### Architecture overview
+
+```
+┌─────────────┐
+│   Postgres  │  OLTP — writes, FK integrity, source of truth
+└──────┬──────┘
+       │
+ ┌─────┴──────────────────────┐
+ │                            │
+ │ Batch path                 │ Real-time path
+ │                            │
+ Airflow                    Kafka
+ (export)                     │
+ │                          Flink
+ │                  (enrich, join, window)
+ └─────────┬──────────────────┘
+           │
+    ┌──────▼──────┐
+    │ ClickHouse  │  OLAP — analytical reads, dashboards
+    └──────┬──────┘
+           │
+          dbt
+           │
+       Dashboard
+```
+
+**Why two databases?** Postgres is optimised for transactional writes with strong consistency and FK constraints. ClickHouse is a columnar store optimised for analytical reads — aggregations over millions of rows that would be slow in Postgres run in milliseconds. Flink sits between Kafka and ClickHouse to enrich and transform events in-flight before they land; ClickHouse's native Kafka engine can be used for simple ingestion without Flink where no transformation is needed.
 
 ---
 
@@ -228,11 +257,12 @@ uv add <package>
 - [x] Live map visualiser (dev preview)
 - [x] Postgres schema + migrations
 - [x] Docker Compose setup (Postgres + pgAdmin)
-- [x] Bulk historical data load — 2.5M rides via psycopg3 COPY
+- [x] Bulk historical data load — via psycopg3 COPY
 - [ ] Kafka producer
 - [ ] Flink jobs
-- [ ] Airflow DAGs
-- [ ] dbt models
+- [ ] ClickHouse Docker service + schema
+- [ ] Airflow DAGs (Postgres → ClickHouse export)
+- [ ] dbt models (targeting ClickHouse)
 - [ ] Surge zones table + admin controls
 - [ ] Admin console (driver/customer panels, live parameter controls)
 - [ ] Hosting
