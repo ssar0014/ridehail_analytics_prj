@@ -39,7 +39,7 @@ class DriverGenerator:
             first_name=fake.first_name(),
             last_name=fake.last_name(),
             phone_number=fake.phone_number(),
-            email=fake.email(),
+            email=fake.unique.email(),
             license_number=fake.bothify(text="DL-#######"),
             status=status,
             current_latitude=round(random.uniform(self.lat_min, self.lat_max), 6),

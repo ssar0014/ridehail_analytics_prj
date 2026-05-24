@@ -39,7 +39,7 @@ class CustomerGenerator:
             first_name=fake.first_name(),
             last_name=fake.last_name(),
             phone_number=fake.phone_number(),
-            email=fake.email(),
+            email=fake.unique.email(),
             payment_token=f"tok_{fake.bothify(text='????####????####')}",
             status=status,
             tier=tier,

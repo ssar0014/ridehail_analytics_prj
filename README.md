@@ -33,6 +33,7 @@ An end-to-end data engineering and analytics project simulating a ridehail servi
 ```
 ridehail_analytics/
 ├── enums/                          # StrEnum/IntEnum definitions
+│   ├── cancelled_by.py             # CancelledBy (driver / customer / admin)
 │   ├── customer_status.py          # CustomerStatus, CustomerTier
 │   ├── driver_status.py            # DriverStatus
 │   ├── rated_entity_type.py        # RatedEntityType
@@ -53,7 +54,7 @@ ridehail_analytics/
 │   │   ├── driver_generator.py
 │   │   ├── customer_generator.py
 │   │   ├── vehicle_generator.py
-│   │   ├── ride_generator.py
+│   │   ├── ride_generator.py       # 8% cancellation rate; cancelled_by weighted by actor
 │   │   ├── fare_generator.py
 │   │   ├── rating_generator.py
 │   │   └── ride_event_generator.py
@@ -61,6 +62,13 @@ ridehail_analytics/
 │   │   └── batch_generator.py      # Orchestrates all entity generators; produces BatchDataset
 │   └── real_time/
 │       └── real_time_generator.py  # Heap-based concurrent ride simulator; yields StreamPayload
+├── migrations/                     # Ordered SQL migration files
+│   ├── 001_create_schema.sql       # Full OLTP schema (all 7 tables + indexes)
+│   └── 002_add_cancelled_by.sql    # ALTER TABLE rides ADD COLUMN cancelled_by
+├── db/
+│   ├── connection.py               # get_conn() — psycopg3 connection from env
+│   ├── migrate.py                  # Migration runner (--reset to wipe and reapply)
+│   └── batch_loader.py             # Bulk-loads BatchDataset via COPY; chunked large-batch loader
 ├── ui/
 │   └── ride_visualizer.py          # Streamlit + PyDeck live map (dev preview)
 └── main.py
@@ -90,7 +98,7 @@ Driver  ──< Ride >── Customer
 | `Driver` | `driver_id`, `first_name`, `last_name`, `phone_number`, `email`, `license_number`, `status`, `current_latitude`, `current_longitude` | Status via `DriverStatus` enum |
 | `Customer` | `customer_id`, `first_name`, `last_name`, `phone_number`, `email`, `payment_token`, `is_active`, `is_premium_member` | `payment_token` is an opaque ref — raw card data is never stored |
 | `Vehicle` | `vehicle_id`, `driver_id`*, `make`, `model`, `year`, `color`, `plate`, `vehicle_type`, `status` | `driver_id` is required — a vehicle cannot exist without a driver |
-| `Ride` | `ride_id`, `driver_id`*, `customer_id`*, `vehicle_id`*, `status`, pickup/dropoff lat+lon+address, lifecycle timestamps, `distance_km`, `duration_minutes` | Status follows a defined lifecycle (see below) |
+| `Ride` | `ride_id`, `driver_id`*, `customer_id`*, `vehicle_id`*, `status`, pickup/dropoff lat+lon+address, lifecycle timestamps, `distance_km`, `duration_minutes`, `cancelled_by` | Status follows a defined lifecycle (see below); dropoff fields are nullable for cancelled rides |
 | `Fare` | `fare_id`, `ride_id`*, `base_fare`, `distance_fare`, `surge_multiplier`, `surge_amount`, `tip`, `taxes`, `total` | `surge_amount` and `total` are computed in `__post_init__` |
 | `Rating` | `rating_id`, `ride_id`*, `rated_entity_id`*, `rated_entity_type`, `rated_by_id`*, `score`, `comment` | One model covers both driver and customer ratings; score validated 1.0–5.0 |
 | `RideEvent` | `event_id`, `ride_id`*, `event_type`, `latitude`, `longitude`, `occurred_at` | High-frequency events fed to the real-time pipeline |
@@ -101,8 +109,12 @@ Driver  ──< Ride >── Customer
 
 ```
 REQUESTED → ACCEPTED → EN_ROUTE_TO_PICKUP → ARRIVED_AT_PICKUP → IN_PROGRESS → COMPLETED
-                                                                             → CANCELLED
+    │            │                                                                  
+    └────────────┴──────────────────────────────────────────────────────────────> CANCELLED
+                                                                 (cancelled_by: driver | customer | admin)
 ```
+
+The batch generator models the end state only (COMPLETED or CANCELLED). The real-time pipeline will emit state-transition events at each stage, starting from REQUESTED.
 
 ### Star Schema (Data Warehouse)
 
@@ -124,6 +136,63 @@ uv run streamlit run ui/ride_visualizer.py
 ```
 
 > **Note:** this is a development preview only. It will be replaced by a full admin console (with driver/customer telemetry panels and live parameter controls) once the Kafka + Flink pipeline is in place.
+
+---
+
+## Infrastructure
+
+Docker Compose runs Postgres (port 5432) and pgAdmin (port 5050).
+
+```bash
+# Start all services
+docker compose up -d
+
+# pgAdmin UI
+open http://localhost:5050   # admin@ridehail.dev / admin
+```
+
+Connection defaults (set via environment or `.env`):
+
+| Variable | Default |
+|---|---|
+| `PGHOST` | `localhost` |
+| `PGPORT` | `5432` |
+| `PGDATABASE` | `ridehail_db` |
+| `PGUSER` | `ridehail` |
+| `PGPASSWORD` | `ridehail` |
+
+---
+
+## Database
+
+### Migrations
+
+```bash
+# Apply any pending migrations
+uv run python db/migrate.py
+
+# Wipe schema and reapply all migrations from scratch (dev only)
+uv run python db/migrate.py --reset
+```
+
+Migrations are plain `.sql` files in `migrations/`, applied in filename order and tracked in a `schema_migrations` table.
+
+### Loading historical data
+
+```bash
+# Load 2.5M rides (500 drivers, 5 000 customers) — chunked to keep memory bounded
+uv run python db/batch_loader.py
+
+# Append cancelled rides using entities already in the database
+uv run python -c "from db.batch_loader import load_cancelled_batch; load_cancelled_batch()"
+```
+
+`load_large_batch()` uses psycopg3's `COPY … FROM STDIN` protocol for high-throughput inserts, processing 10 000 rides per chunk. Only `STATUS_CHANGED` ride events (ride start and end) are stored in Postgres; full location streams belong in the Kafka real-time pipeline.
+
+**Batch data characteristics:**
+- ~8% of rides are cancelled (weighted: 55% customer, 35% driver, 10% admin)
+- Fares and ratings are generated only for completed rides
+- Each completed ride produces two ride events (STATUS_CHANGED at pickup and dropoff)
 
 ---
 
@@ -154,14 +223,16 @@ uv add <package>
 ## Roadmap
 
 - [x] OLTP data models
-- [x] Batch data generator
+- [x] Batch data generator (completed + cancelled rides, fares, ratings, ride events)
 - [x] Real-time data generator
 - [x] Live map visualiser (dev preview)
-- [ ] Postgres schema + migrations
-- [ ] Docker Compose setup
+- [x] Postgres schema + migrations
+- [x] Docker Compose setup (Postgres + pgAdmin)
+- [x] Bulk historical data load — 2.5M rides via psycopg3 COPY
 - [ ] Kafka producer
 - [ ] Flink jobs
 - [ ] Airflow DAGs
 - [ ] dbt models
+- [ ] Surge zones table + admin controls
 - [ ] Admin console (driver/customer panels, live parameter controls)
 - [ ] Hosting

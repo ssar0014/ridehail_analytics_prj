@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from faker import Faker
 from uuid import UUID, uuid4
 
+from enums.cancelled_by import CancelledBy
 from enums.ride_status import RideStatus
 from models.ride_model import Ride
 
@@ -15,6 +16,14 @@ _LON_MIN, _LON_MAX = -122.52, -122.35
 
 # Average city speed (km/h) used to derive duration from distance
 _AVG_SPEED_KMH = 28.0
+
+_CANCELLATION_RATE = 0.08  # 8% of rides are cancelled
+
+_CANCELLED_BY_WEIGHTS = {
+    CancelledBy.CUSTOMER: 0.55,
+    CancelledBy.DRIVER:   0.35,
+    CancelledBy.ADMIN:    0.10,
+}
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -53,20 +62,44 @@ class RideGenerator:
         return self.start_date + timedelta(seconds=random.uniform(0, delta.total_seconds()))
 
     def generate(self, driver_id: UUID, customer_id: UUID, vehicle_id: UUID) -> Ride:
-        pickup_lat,  pickup_lon  = self._random_coord()
+        pickup_lat, pickup_lon = self._random_coord()
+        requested_at = self._random_timestamp_in_range()
+
+        if random.random() < _CANCELLATION_RATE:
+            cancelled_by = random.choices(
+                list(_CANCELLED_BY_WEIGHTS.keys()),
+                weights=list(_CANCELLED_BY_WEIGHTS.values()),
+            )[0]
+            # ~60% of cancellations happen after a driver accepted
+            accepted_at = (
+                requested_at + timedelta(minutes=random.uniform(1, 5))
+                if random.random() < 0.6 else None
+            )
+            return Ride(
+                ride_id=uuid4(),
+                driver_id=driver_id,
+                customer_id=customer_id,
+                vehicle_id=vehicle_id,
+                status=RideStatus.CANCELLED,
+                pickup_latitude=pickup_lat,
+                pickup_longitude=pickup_lon,
+                pickup_address=fake.address().replace("\n", ", "),
+                requested_at=requested_at,
+                accepted_at=accepted_at,
+                cancelled_by=cancelled_by,
+            )
+
         dropoff_lat, dropoff_lon = self._random_coord()
 
         distance_km = round(_haversine_km(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon), 2)
-        # Add a routing factor — roads are longer than straight-line
         distance_km = round(distance_km * random.uniform(1.2, 1.5), 2)
         distance_km = max(distance_km, 0.5)
 
         duration_minutes = round((distance_km / _AVG_SPEED_KMH) * 60, 1)
 
-        requested_at = self._random_timestamp_in_range()
-        accepted_at  = requested_at + timedelta(minutes=random.uniform(1, 5))
-        pickup_at    = accepted_at  + timedelta(minutes=random.uniform(3, 15))
-        dropoff_at   = pickup_at    + timedelta(minutes=duration_minutes)
+        accepted_at = requested_at + timedelta(minutes=random.uniform(1, 5))
+        pickup_at   = accepted_at  + timedelta(minutes=random.uniform(3, 15))
+        dropoff_at  = pickup_at    + timedelta(minutes=duration_minutes)
 
         return Ride(
             ride_id=uuid4(),

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from enums.ride_status import RideStatus
 from models.customer_model import Customer
 from models.driver_model import Driver
 from models.fare_model import Fare
@@ -72,17 +73,16 @@ class BatchGenerator:
         customer_ids = [c.customer_id for c in customers]
         vehicle_ids  = [v.vehicle_id  for v in vehicles]
 
-        # Completed rides
+        # All rides (completed + cancelled)
         rides = self._ride_gen.generate_many(driver_ids, customer_ids, vehicle_ids, self.n_rides)
+        completed = [r for r in rides if r.status == RideStatus.COMPLETED]
 
-        # Fares — one per ride
+        # Fares and ratings only for completed rides
         fares = self._fare_gen.generate_many(
-            [(r.ride_id, r.distance_km) for r in rides]
+            [(r.ride_id, r.distance_km) for r in completed]
         )
-
-        # Ratings — two per ride (driver + customer)
         ratings = self._rating_gen.generate_many(
-            [(r.ride_id, r.driver_id, r.customer_id) for r in rides]
+            [(r.ride_id, r.driver_id, r.customer_id) for r in completed]
         )
 
         # Ride events — full location stream per ride
