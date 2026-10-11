@@ -1,0 +1,9 @@
+# Build context for api/Dockerfile — keep it small and free of secrets
+.git
+.venv
+.vscode
+.claude
+.env
+**/__pycache__
+**/*.py[oc]
+frontend

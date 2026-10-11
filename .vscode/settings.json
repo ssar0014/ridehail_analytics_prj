@@ -1,0 +1,30 @@
+{
+    "sqltools.connections": [
+        {
+            "server": "http://localhost",
+            "port": 8123,
+            "database": "ridehail",
+            "useJWT": false,
+            "requestTimeout": 30000,
+            "enableTls": false,
+            "previewLimit": 50,
+            "password": "ridehail",
+            "username": "ridehail",
+            "driver": "ClickHouse",
+            "name": "ridehail_clickhouse",
+            "group": "ridehail_analytics"
+        },
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "ridehail_postgres",
+            "group": "ridehail_analytics",
+            "database": "ridehail_db",
+            "username": "ridehail",
+            "password": "ridehail"
+        }
+    ]
+}

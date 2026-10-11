@@ -16,3 +16,6 @@ CLAUDE.md
 # uv files
 uv.lock
 *uv/*
+
+# Local environment
+.env
