@@ -1,0 +1,123 @@
+# Full stack:   docker compose up -d --build        → web app on http://localhost:8080
+# Plus pgAdmin: docker compose --profile dev up -d  → http://localhost:5050
+#
+# Settings come from .env (copy .env.example). JWT_SECRET is required.
+#
+# Database ports are bound to 127.0.0.1 so local tools (batch loader, dev API,
+# DB clients) can reach them while they stay closed to the outside on a server.
+
+x-db-credentials: &db-credentials
+  POSTGRES_USER: ${POSTGRES_USER:-ridehail}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ridehail}
+  POSTGRES_DB: ${POSTGRES_DB:-ridehail_db}
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-ridehail}:${POSTGRES_PASSWORD:-ridehail}@postgres:5432/${POSTGRES_DB:-ridehail_db}
+  CLICKHOUSE_HOST: clickhouse
+  CLICKHOUSE_PORT: 8123
+  CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ridehail}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ridehail}
+  CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-ridehail}
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
+  ACCESS_TOKEN_TTL_MINUTES: ${ACCESS_TOKEN_TTL_MINUTES:-60}
+
+x-api-build: &api-build
+  context: .
+  dockerfile: api/Dockerfile
+
+services:
+  # ── data stores ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    container_name: ridehail_postgres
+    restart: unless-stopped
+    environment: *db-credentials
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    container_name: ridehail_clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ridehail}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ridehail}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-ridehail}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "127.0.0.1:8123:8123"   # HTTP interface (used by the API)
+      - "127.0.0.1:9000:9000"   # native protocol
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── application ─────────────────────────────────────────────────────────────
+  # One-shot: applies pending SQL migrations, then exits. The API waits for it.
+  migrate:
+    build: *api-build
+    image: ridehail-api
+    command: ["python", "-m", "db.migrate"]
+    environment: *api-env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: *api-build
+    image: ridehail-api
+    container_name: ridehail_api
+    restart: unless-stopped
+    environment: *api-env
+    # Not published — reached through the web container's /api proxy
+    expose:
+      - "8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_started
+
+  web:
+    build: ./frontend
+    image: ridehail-web
+    container_name: ridehail_web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_started
+
+  # ── dev-only tools (docker compose --profile dev …) ─────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: ridehail_pgadmin
+    profiles: ["dev"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@ridehail.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "127.0.0.1:5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  clickhouse_data:
